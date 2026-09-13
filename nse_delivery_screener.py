@@ -59,7 +59,8 @@ def create_nse_session():
 
     response.raise_for_status()
 
-    print("NSE session established.")
+    print("NSE session prepared.")
+
 
     return session
 
