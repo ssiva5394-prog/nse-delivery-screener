@@ -50,15 +50,6 @@ def create_nse_session():
         "Referer": NSE_HOME + "/",
     })
 
-    print("Opening NSE homepage...")
-
-    response = session.get(
-        NSE_HOME + "/",
-        timeout=20
-    )
-
-    response.raise_for_status()
-
     print("NSE session prepared.")
 
 
