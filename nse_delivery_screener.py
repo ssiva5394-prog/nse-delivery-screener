@@ -501,7 +501,7 @@ def update_history(
 
 
     else:
-
+          
         history["Date"] = pd.to_datetime(
             history["Date"]
         ).dt.date
@@ -573,6 +573,9 @@ def update_history(
         [history, latest_data],
         ignore_index=True
     )
+    history["Date"] = pd.to_datetime(
+    history["Date"]
+).dt.date
 
 
     # Keep only rolling history.
