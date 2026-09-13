@@ -889,7 +889,210 @@ def main():
     print(" -", SIGNALS_FILE)
 
     print("=" * 60)
+    # Build historical signals for every available trading day
+    historical_signals = build_historical_signals(
+        history
+    )
 
+    historical_signals.to_csv(
+        "historical_signals.csv",
+        index=False
+    )
 
+    print(
+        "Historical signals:",
+        len(historical_signals)
+    )
+
+    print(
+        "File created: historical_signals.csv"
+    )
+
+def build_historical_signals(history):
+    """
+    Calculate the two-condition delivery signal
+    for every trading day available in history.
+
+    Condition 1:
+        Today's delivery > previous 30-day maximum delivery
+
+    Condition 2:
+        Today's delivery > 2 x previous trading day's delivery
+    """
+
+    if history.empty:
+        return pd.DataFrame()
+
+    df = history.copy()
+
+    df["Date"] = pd.to_datetime(df["Date"]).dt.date
+
+    df = df.sort_values(
+        ["Symbol", "Date"]
+    ).reset_index(drop=True)
+
+    results = []
+
+    all_dates = sorted(df["Date"].unique())
+
+    for current_date in all_dates:
+
+        previous_dates = [
+            d for d in all_dates
+            if d < current_date
+        ]
+
+        if not previous_dates:
+            continue
+
+        previous_date = previous_dates[-1]
+
+        today = df[
+            df["Date"] == current_date
+        ].copy()
+
+        previous = df[
+            df["Date"] == previous_date
+        ][
+            ["Symbol", "Delivery_Qty"]
+        ].rename(
+            columns={
+                "Delivery_Qty":
+                "Previous_Day_Delivery"
+            }
+        )
+
+        if today.empty or previous.empty:
+            continue
+
+        merged = today.merge(
+            previous,
+            on="Symbol",
+            how="inner"
+        )
+
+        # Previous 30 calendar days, excluding today.
+        cutoff = (
+            current_date -
+            timedelta(days=LOOKBACK_DAYS)
+        )
+
+        prior = df[
+            (df["Date"] < current_date) &
+            (df["Date"] >= cutoff)
+        ].copy()
+
+        if prior.empty:
+            continue
+
+        max_delivery = (
+            prior
+            .groupby("Symbol")["Delivery_Qty"]
+            .max()
+            .rename("Previous_30_Day_Max")
+            .reset_index()
+        )
+
+        merged = merged.merge(
+            max_delivery,
+            on="Symbol",
+            how="left"
+        )
+
+        merged["Previous_30_Day_Max"] = (
+            merged["Previous_30_Day_Max"]
+            .fillna(0)
+        )
+
+        merged["Previous_Day_Delivery"] = (
+            merged["Previous_Day_Delivery"]
+            .fillna(0)
+        )
+
+        # Condition 1
+        condition_1 = (
+            merged["Delivery_Qty"] >
+            merged["Previous_30_Day_Max"]
+        )
+
+        # Condition 2
+        condition_2 = (
+            merged["Delivery_Qty"] >
+            PREVIOUS_DAY_MULTIPLIER *
+            merged["Previous_Day_Delivery"]
+        )
+
+        signals = merged[
+            condition_1 & condition_2
+        ].copy()
+
+        if signals.empty:
+            continue
+
+        signals["Delivery_Multiple"] = (
+            signals["Delivery_Qty"] /
+            signals["Previous_Day_Delivery"]
+        )
+
+        signals["Price_Change_Percent"] = (
+            (
+                signals["Close"] -
+                signals["Prev_Close"]
+            )
+            /
+            signals["Prev_Close"].replace(
+                0,
+                pd.NA
+            )
+        ) * 100
+
+        signals["Date"] = (
+            signals["Date"].astype(str)
+        )
+
+        output = signals[
+            [
+                "Date",
+                "Symbol",
+                "Close",
+                "Price_Change_Percent",
+                "Delivery_Qty",
+                "Previous_Day_Delivery",
+                "Delivery_Multiple",
+                "Previous_30_Day_Max",
+                "Delivery_Percent",
+            ]
+        ].copy()
+
+        results.append(output)
+
+    if not results:
+        return pd.DataFrame(
+            columns=[
+                "Date",
+                "Symbol",
+                "Close",
+                "Price_Change_Percent",
+                "Delivery_Qty",
+                "Previous_Day_Delivery",
+                "Delivery_Multiple",
+                "Previous_30_Day_Max",
+                "Delivery_Percent",
+            ]
+        )
+
+    historical = pd.concat(
+        results,
+        ignore_index=True
+    )
+
+    historical = historical.sort_values(
+        ["Date", "Delivery_Multiple"],
+        ascending=[True, False]
+    )
+
+    return historical
 if __name__ == "__main__":
     main()
+
+   
