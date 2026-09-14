@@ -200,7 +200,7 @@ def build_signals(df):
         ascending=[True, False]
     )
 def save_all(df):
-    sig=build_signals(df)s
+    sig=build_signals(df)
     sig.to_csv(HISTORICAL_SIGNALS_FILE,index=False)
     return sig
 
