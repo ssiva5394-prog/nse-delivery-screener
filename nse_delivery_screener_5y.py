@@ -144,24 +144,22 @@ def build_signals(df):
         # RULE 1:
         # Today's delivery > maximum delivery during
         # the preceding one calendar month, excluding today.
-        condition_1 = (
-            g["Has_Calendar_Month_History"]
+               condition_1 = (
+            g["Has_Calendar_Month_History"].fillna(False)
             & g["Previous_Calendar_Month_Max"].notna()
             & (
                 g["Delivery_Qty"]
-                > g["Previous_Calendar_Month_Max"]
+                > g["Previous_Calendar_Month_Max"].fillna(-1)
             )
         )
 
-        # RULE 2:
-        # Today's delivery > 2 x previous trading day's delivery.
         condition_2 = (
             g["Previous_Day_Delivery"].notna()
             & (
                 g["Delivery_Qty"]
                 > (
                     PREVIOUS_DAY_MULTIPLIER
-                    * g["Previous_Day_Delivery"]
+                    * g["Previous_Day_Delivery"].fillna(-1)
                 )
             )
         )
