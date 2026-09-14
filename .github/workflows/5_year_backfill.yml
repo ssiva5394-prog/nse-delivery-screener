@@ -1,0 +1,49 @@
+name: NSE 5 Year Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Start date YYYY-MM-DD"
+        required: true
+        default: "2021-09-14"
+
+      end_date:
+        description: "End date YYYY-MM-DD"
+        required: true
+        default: "2026-09-14"
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run five-year backfill
+        run: |
+          python nse_delivery_screener_5y.py backfill \
+            "${{ inputs.start_date }}" \
+            "${{ inputs.end_date }}"
+
+      - name: Save five-year data
+        run: |
+          git config user.name "NSE Delivery Screener"
+          git config user.email "actions@github.com"
+          git add five_year_history.csv historical_signals_5y.csv
+          git diff --cached --quiet || git commit -m "Build corrected 5-year delivery history"
+          git push
