@@ -128,42 +128,179 @@ def build_signals(df):
         "Close_vs_VWAP_Percent", "Candle_Direction", "VWAP_Direction",
         "Market_Direction", "Close_Position_Percent", "Price_Change_Percent",
         "Delivery_Qty", "Previous_Day_Delivery", "Delivery_Multiple",
-        "Previous_Calendar_Month_Max", "Delivery_Percent"
+        "Previous_Calendar_Month_Max", "Previous_Max_Delivery_Date",
+        "Previous_Max_Delivery_Qty", "Previous_Max_Open", "Previous_Max_High",
+        "Previous_Max_Low", "Previous_Max_Close", "OHLC_Direction_Score",
+        "Market_Direction_vs_Max_Delivery_Day", "Delivery_Percent"
     ]
+
     if df.empty:
         return pd.DataFrame(columns=cols)
+
     df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"]).dt.date
     results = []
+
     for symbol, g in df.groupby("Symbol", sort=False):
         g = g.sort_values("Date").copy()
+
+        # Previous trading day's delivery for this stock
         g["Previous_Day_Delivery"] = g["Delivery_Qty"].shift(1)
+
         dates = g["Date"].tolist()
         values = g["Delivery_Qty"].tolist()
+
         maxes = []
+        max_dates = []
+        max_qtys = []
         has_month_history = []
         left = 0
+
         for i, current_date in enumerate(dates):
             cutoff = month_back(current_date)
+
             while left < i and dates[left] < cutoff:
                 left += 1
+
+            # There must be actual data in the preceding calendar-month window.
             has_history = left < i
             has_month_history.append(has_history)
-            maxes.append(max(values[left:i]) if has_history else pd.NA)
+
+            if has_history:
+                window_values = values[left:i]
+                max_qty = max(window_values)
+
+                # If the maximum delivery occurred more than once,
+                # use the most recent occurrence before the signal date.
+                max_pos = max(
+                    j for j in range(left, i)
+                    if values[j] == max_qty
+                )
+
+                maxes.append(max_qty)
+                max_dates.append(dates[max_pos])
+                max_qtys.append(values[max_pos])
+            else:
+                maxes.append(pd.NA)
+                max_dates.append(pd.NA)
+                max_qtys.append(pd.NA)
+
         g["Previous_Calendar_Month_Max"] = maxes
+        g["Previous_Max_Delivery_Date"] = max_dates
+        g["Previous_Max_Delivery_Qty"] = max_qtys
         g["Has_Calendar_Month_History"] = has_month_history
-        condition_1 = (g["Has_Calendar_Month_History"].fillna(False) & g["Previous_Calendar_Month_Max"].notna() & (g["Delivery_Qty"] > g["Previous_Calendar_Month_Max"].fillna(-1)))
-        condition_2 = (g["Previous_Day_Delivery"].notna() & (g["Delivery_Qty"] > (PREVIOUS_DAY_MULTIPLIER * g["Previous_Day_Delivery"].fillna(-1))))
+
+        # RULE 1:
+        # Today's delivery > maximum delivery during
+        # the preceding one calendar month, excluding today.
+        condition_1 = (
+            g["Has_Calendar_Month_History"].fillna(False)
+            & g["Previous_Calendar_Month_Max"].notna()
+            & (
+                g["Delivery_Qty"]
+                > g["Previous_Calendar_Month_Max"].fillna(-1)
+            )
+        )
+
+        # RULE 2:
+        # Today's delivery > 2 x previous trading day's delivery.
+        condition_2 = (
+            g["Previous_Day_Delivery"].notna()
+            & (
+                g["Delivery_Qty"]
+                > (
+                    PREVIOUS_DAY_MULTIPLIER
+                    * g["Previous_Day_Delivery"].fillna(-1)
+                )
+            )
+        )
+
+        # BOTH rules must pass.
         signals = g[condition_1 & condition_2].copy()
+
         if signals.empty:
             continue
-        signals["Delivery_Multiple"] = signals["Delivery_Qty"] / signals["Previous_Day_Delivery"]
-        signals["Price_Change_Percent"] = ((signals["Close"] - signals["Prev_Close"]) / signals["Prev_Close"].replace(0, pd.NA)) * 100
+
+        signals["Delivery_Multiple"] = (
+            signals["Delivery_Qty"]
+            / signals["Previous_Day_Delivery"]
+        )
+
+        signals["Price_Change_Percent"] = (
+            (
+                signals["Close"]
+                - signals["Prev_Close"]
+            )
+            / signals["Prev_Close"].replace(0, pd.NA)
+        ) * 100
+
         signals = add_direction_fields(signals)
+
+        # Pull OHLC from the historical day on which the preceding
+        # calendar-month maximum delivery occurred.
+        ref = g[[
+            "Date", "Open", "High", "Low", "Close", "Delivery_Qty"
+        ]].copy()
+        ref = ref.rename(columns={
+            "Date": "Previous_Max_Delivery_Date",
+            "Open": "Previous_Max_Open",
+            "High": "Previous_Max_High",
+            "Low": "Previous_Max_Low",
+            "Close": "Previous_Max_Close",
+            "Delivery_Qty": "Previous_Max_Delivery_Qty_Ref"
+        })
+
+        signals = signals.merge(
+            ref,
+            on="Previous_Max_Delivery_Date",
+            how="left"
+        )
+
+        # Keep the max quantity calculated from the window as the authoritative value.
+        signals["Previous_Max_Delivery_Qty"] = signals["Previous_Calendar_Month_Max"]
+
+        # Compare today's OHLC against the OHLC of the previous
+        # calendar-month maximum-delivery day.
+        open_vote = (signals["Open"] > signals["Previous_Max_Open"]).astype(int)
+        high_vote = (signals["High"] > signals["Previous_Max_High"]).astype(int)
+        low_vote = (signals["Low"] > signals["Previous_Max_Low"]).astype(int)
+        close_vote = (signals["Close"] > signals["Previous_Max_Close"]).astype(int)
+
+        # +1 for higher, -1 for lower. Close gets the same vote as the other OHLC fields.
+        signals["OHLC_Direction_Score"] = (
+            (open_vote * 2 - 1)
+            + (high_vote * 2 - 1)
+            + (low_vote * 2 - 1)
+            + (close_vote * 2 - 1)
+        )
+
+        # Binary decision as requested:
+        # 3 or 4 bullish OHLC comparisons => Bullish.
+        # 0 or 1 bullish comparisons => Bearish.
+        # For an exact 2-vs-2 tie, use Close vs the reference Close as the tie-breaker.
+        signals["Market_Direction_vs_Max_Delivery_Day"] = "Bearish"
+        signals.loc[
+            signals["OHLC_Direction_Score"] > 0,
+            "Market_Direction_vs_Max_Delivery_Day"
+        ] = "Bullish"
+        tie = signals["OHLC_Direction_Score"] == 0
+        signals.loc[
+            tie & (signals["Close"] > signals["Previous_Max_Close"]),
+            "Market_Direction_vs_Max_Delivery_Day"
+        ] = "Bullish"
+
         results.append(signals[cols])
+
     if not results:
         return pd.DataFrame(columns=cols)
-    return pd.concat(results, ignore_index=True).sort_values(["Date", "Delivery_Multiple"], ascending=[True, False])
+
+    return pd.concat(
+        results,
+        ignore_index=True
+    ).sort_values(
+        ["Date", "Delivery_Multiple"],
+        ascending=[True, False]
+    )
 
 def save_all(df):
     sig = build_signals(df)
