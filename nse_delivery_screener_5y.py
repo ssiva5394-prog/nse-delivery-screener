@@ -95,15 +95,52 @@ def build_signals(df):
         g=g.sort_values("Date").copy()
         g["Previous_Day_Delivery"]=g["Delivery_Qty"].shift(1)
         ds=g["Date"].tolist(); vals=g["Delivery_Qty"].tolist()
-        maxes=[]; left=0
-        for i,d in enumerate(ds):
-            cutoff=month_back(d)
-            while left<i and ds[left]<cutoff: left+=1
-            maxes.append(max(vals[left:i]) if left<i else 0)
-        g["Previous_Calendar_Month_Max"]=maxes
-        c1=g["Delivery_Qty"]>g["Previous_Calendar_Month_Max"]
-        c2=g["Delivery_Qty"]>PREVIOUS_DAY_MULTIPLIER*g["Previous_Day_Delivery"].fillna(0)
-        z=g[c1&c2].copy()
+         maxes = []
+        has_month_history = []
+        left = 0
+
+        for i, d in enumerate(ds):s
+            cutoff = month_back(d)
+
+            while left < i and ds[left] < cutoff:
+                left += 1
+
+        # Require actual history in the preceding calendar month.
+        has_history = left < i
+        has_month_history.append(has_history)
+
+        if has_history:
+            maxes.append(max(vals[left:i]))
+        else:
+            maxes.append(pd.NA)
+
+    g["Previous_Calendar_Month_Max"] = maxes
+    g["Has_Calendar_Month_History"] = has_month_history
+
+    # Rule 1: today's delivery must exceed the
+    # previous calendar month's maximum.
+    c1 = (
+        g["Has_Calendar_Month_History"]
+        & g["Previous_Calendar_Month_Max"].notna()
+        & (
+            g["Delivery_Qty"]
+            > g["Previous_Calendar_Month_Max"]
+        )
+    )
+
+    # Rule 2: today's delivery must exceed
+    # 2 x previous trading day's delivery.
+    c2 = (
+        g["Previous_Day_Delivery"].notna()
+        & (
+            g["Delivery_Qty"]
+            > PREVIOUS_DAY_MULTIPLIER
+            * g["Previous_Day_Delivery"]
+        )
+    )
+
+    # Both rules must pass.
+    z = g[c1 & c2].copy()
         if z.empty: continue
         z["Delivery_Multiple"]=z["Delivery_Qty"]/z["Previous_Day_Delivery"]
         z["Price_Change_Percent"]=((z["Close"]-z["Prev_Close"])/z["Prev_Close"].replace(0,pd.NA))*100
