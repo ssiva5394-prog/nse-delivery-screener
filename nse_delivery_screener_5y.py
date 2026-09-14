@@ -23,15 +23,16 @@ def session():
     return s
 
 def fno_symbols(s):
-    r = s.get(NSE_FNO_PAGE, timeout=30); r.raise_for_status()
+    r = s.get(NSE_FNO_PAGE, timeout=30)
+    r.raise_for_status()
     symbols = set()
     try:
         for t in pd.read_html(io.StringIO(r.text)):
-            col = next((c for c in t.columns if str(c).strip().upper()=="SYMBOL"), None)
+            col = next((c for c in t.columns if str(c).strip().upper() == "SYMBOL"), None)
             if col is not None:
                 for x in t[col].dropna():
                     x = str(x).strip()
-                    if x and x.upper() not in {"SYMBOL","NIFTY","BANKNIFTY","FINNIFTY","MIDCPNIFTY","NIFTYNXT50"}:
+                    if x and x.upper() not in {"SYMBOL", "NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"}:
                         symbols.add(x)
     except Exception as e:
         print("F&O table parse:", e)
@@ -45,222 +46,202 @@ def fno_symbols(s):
 def download(s, d):
     url = f"https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{d:%d%m%Y}.csv"
     err = None
-    for n in range(1,4):
+    for n in range(1, 4):
         try:
-            r=s.get(url,timeout=40)
-            if r.status_code==200 and len(r.text)>500: return r.text
-            err=f"HTTP {r.status_code}"
-        except Exception as e: err=str(e)
-        time.sleep(2*n)
+            r = s.get(url, timeout=40)
+            if r.status_code == 200 and len(r.text) > 500:
+                return r.text
+            err = f"HTTP {r.status_code}"
+        except Exception as e:
+            err = str(e)
+        time.sleep(2 * n)
     raise RuntimeError(f"{d}: {err}")
 
-def parse(text,d,symbols):
-    df=pd.read_csv(io.StringIO(text),skipinitialspace=True)
-    df.columns=[str(c).strip().upper() for c in df.columns]
-    need={"SYMBOL","SERIES","PREV_CLOSE","CLOSE_PRICE","TTL_TRD_QNTY","DELIV_QTY","DELIV_PER"}
-    if need-set(df.columns): raise RuntimeError("Missing columns: "+",".join(sorted(need-set(df.columns))))
-    df=df[df.SERIES.astype(str).str.strip().str.upper()=="EQ"].copy()
-    df["SYMBOL"]=df.SYMBOL.astype(str).str.strip()
-    df=df[df.SYMBOL.isin(symbols)].copy()
-    for c in ["PREV_CLOSE","CLOSE_PRICE","TTL_TRD_QNTY","DELIV_QTY","DELIV_PER"]:
-        df[c]=pd.to_numeric(df[c],errors="coerce").fillna(0)
-    out=df[["SYMBOL","SERIES","CLOSE_PRICE","PREV_CLOSE","TTL_TRD_QNTY","DELIV_QTY","DELIV_PER"]].copy()
-    out.insert(0,"Date",d.isoformat())
-    out.columns=["Date","Symbol","Series","Close","Prev_Close","Traded_Qty","Delivery_Qty","Delivery_Percent"]
+def parse(text, d, symbols):
+    df = pd.read_csv(io.StringIO(text), skipinitialspace=True)
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    need = {"SYMBOL", "SERIES", "PREV_CLOSE", "OPEN_PRICE", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE", "TTL_TRD_QNTY", "TURNOVER_LACS", "DELIV_QTY", "DELIV_PER"}
+    missing = need - set(df.columns)
+    if missing:
+        raise RuntimeError("Missing columns: " + ",".join(sorted(missing)))
+    df = df[df.SERIES.astype(str).str.strip().str.upper() == "EQ"].copy()
+    df["SYMBOL"] = df.SYMBOL.astype(str).str.strip()
+    df = df[df.SYMBOL.isin(symbols)].copy()
+    for c in ["PREV_CLOSE", "OPEN_PRICE", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE", "TTL_TRD_QNTY", "TURNOVER_LACS", "DELIV_QTY", "DELIV_PER"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["DELIV_QTY"] = df["DELIV_QTY"].fillna(0)
+    df["DELIV_PER"] = df["DELIV_PER"].fillna(0)
+    df["TTL_TRD_QNTY"] = df["TTL_TRD_QNTY"].fillna(0)
+    df["TURNOVER_LACS"] = df["TURNOVER_LACS"].fillna(0)
+    df["VWAP"] = (df["TURNOVER_LACS"] * 100000) / df["TTL_TRD_QNTY"].replace(0, pd.NA)
+    out = df[["SYMBOL", "SERIES", "PREV_CLOSE", "OPEN_PRICE", "HIGH_PRICE", "LOW_PRICE", "CLOSE_PRICE", "VWAP", "TTL_TRD_QNTY", "DELIV_QTY", "DELIV_PER"]].copy()
+    out.insert(0, "Date", d.isoformat())
+    out.columns = ["Date", "Symbol", "Series", "Prev_Close", "Open", "High", "Low", "Close", "VWAP", "Traded_Qty", "Delivery_Qty", "Delivery_Percent"]
     return out
 
-def dates_between(a,b):
-    out=[]; d=a
-    while d<=b:
-        if d.weekday()<5: out.append(d)
-        d+=timedelta(days=1)
+def dates_between(a, b):
+    out = []
+    d = a
+    while d <= b:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
     return out
 
 def month_back(d):
-    return (pd.Timestamp(d)-pd.DateOffset(months=1)).date()
+    return (pd.Timestamp(d) - pd.DateOffset(months=1)).date()
 
 def load():
-    if not os.path.exists(HISTORY_FILE): return pd.DataFrame()
-    x=pd.read_csv(HISTORY_FILE)
-    if x.empty: return x
-    x["Date"]=pd.to_datetime(x["Date"]).dt.date
+    if not os.path.exists(HISTORY_FILE):
+        return pd.DataFrame()
+    x = pd.read_csv(HISTORY_FILE)
+    if x.empty:
+        return x
+    x["Date"] = pd.to_datetime(x["Date"]).dt.date
     return x
+
+def add_direction_fields(g):
+    g = g.copy()
+    day_range = (g["High"] - g["Low"]).replace(0, pd.NA)
+    g["Close_Position_Percent"] = ((g["Close"] - g["Low"]) / day_range) * 100
+    g["Close_vs_VWAP_Percent"] = ((g["Close"] - g["VWAP"]) / g["VWAP"].replace(0, pd.NA)) * 100
+    g["Candle_Direction"] = "Neutral"
+    g.loc[g["Close"] > g["Open"], "Candle_Direction"] = "Bullish"
+    g.loc[g["Close"] < g["Open"], "Candle_Direction"] = "Bearish"
+    g["VWAP_Direction"] = "Neutral"
+    g.loc[g["Close"] > g["VWAP"], "VWAP_Direction"] = "Bullish"
+    g.loc[g["Close"] < g["VWAP"], "VWAP_Direction"] = "Bearish"
+    g["Market_Direction"] = "Neutral"
+    strong_bull = (g["Close"] > g["Open"]) & (g["Close"] > g["VWAP"])
+    strong_bear = (g["Close"] < g["Open"]) & (g["Close"] < g["VWAP"])
+    mixed_bull = (g["Close"] > g["Open"]) & (g["Close"] <= g["VWAP"])
+    mixed_bear = (g["Close"] < g["Open"]) & (g["Close"] >= g["VWAP"])
+    g.loc[strong_bull, "Market_Direction"] = "Strong Bullish"
+    g.loc[strong_bear, "Market_Direction"] = "Strong Bearish"
+    g.loc[mixed_bull, "Market_Direction"] = "Mixed Bullish"
+    g.loc[mixed_bear, "Market_Direction"] = "Mixed Bearish"
+    return g
 
 def build_signals(df):
     cols = [
-        "Date",
-        "Symbol",
-        "Close",
-        "Price_Change_Percent",
-        "Delivery_Qty",
-        "Previous_Day_Delivery",
-        "Delivery_Multiple",
-        "Previous_Calendar_Month_Max",
-        "Delivery_Percent"
+        "Date", "Symbol", "Open", "High", "Low", "Close", "VWAP",
+        "Close_vs_VWAP_Percent", "Candle_Direction", "VWAP_Direction",
+        "Market_Direction", "Close_Position_Percent", "Price_Change_Percent",
+        "Delivery_Qty", "Previous_Day_Delivery", "Delivery_Multiple",
+        "Previous_Calendar_Month_Max", "Delivery_Percent"
     ]
-
     if df.empty:
         return pd.DataFrame(columns=cols)
-
     df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"]).dt.date
-
     results = []
-
     for symbol, g in df.groupby("Symbol", sort=False):
         g = g.sort_values("Date").copy()
-
-        # Previous trading day's delivery for this stock
-        g["Previous_Day_Delivery"] = (
-            g["Delivery_Qty"].shift(1)
-        )
-
+        g["Previous_Day_Delivery"] = g["Delivery_Qty"].shift(1)
         dates = g["Date"].tolist()
         values = g["Delivery_Qty"].tolist()
-
         maxes = []
         has_month_history = []
         left = 0
-
         for i, current_date in enumerate(dates):
             cutoff = month_back(current_date)
-
             while left < i and dates[left] < cutoff:
                 left += 1
-
-            # There must be actual data in the
-            # preceding calendar-month window.
             has_history = left < i
             has_month_history.append(has_history)
-
-            if has_history:
-                maxes.append(max(values[left:i]))
-            else:
-                maxes.append(pd.NA)
-
+            maxes.append(max(values[left:i]) if has_history else pd.NA)
         g["Previous_Calendar_Month_Max"] = maxes
         g["Has_Calendar_Month_History"] = has_month_history
-
-                # RULE 1:
-        # Today's delivery > maximum delivery during
-        # the preceding one calendar month, excluding today.
-        condition_1 = (
-            g["Has_Calendar_Month_History"].fillna(False)
-            & g["Previous_Calendar_Month_Max"].notna()
-            & (
-                g["Delivery_Qty"]
-                > g["Previous_Calendar_Month_Max"].fillna(-1)
-            )
-        )
-
-        # RULE 2:
-        # Today's delivery > 2 x previous trading day's delivery.
-        condition_2 = (
-            g["Previous_Day_Delivery"].notna()
-            & (
-                g["Delivery_Qty"]
-                > (
-                    PREVIOUS_DAY_MULTIPLIER
-                    * g["Previous_Day_Delivery"].fillna(-1)
-                )
-            )
-        )
-
-        # BOTH rules must pass.
+        condition_1 = (g["Has_Calendar_Month_History"].fillna(False) & g["Previous_Calendar_Month_Max"].notna() & (g["Delivery_Qty"] > g["Previous_Calendar_Month_Max"].fillna(-1)))
+        condition_2 = (g["Previous_Day_Delivery"].notna() & (g["Delivery_Qty"] > (PREVIOUS_DAY_MULTIPLIER * g["Previous_Day_Delivery"].fillna(-1))))
         signals = g[condition_1 & condition_2].copy()
-
-        # BOTH rules must pass.
-        signals = g[condition_1 & condition_2].copy()
-
         if signals.empty:
             continue
-
-        signals["Delivery_Multiple"] = (
-            signals["Delivery_Qty"]
-            / signals["Previous_Day_Delivery"]
-        )
-
-        signals["Price_Change_Percent"] = (
-            (
-                signals["Close"]
-                - signals["Prev_Close"]
-            )
-            / signals["Prev_Close"].replace(0, pd.NA)
-        ) * 100
-
-        results.append(
-            signals[cols]
-        )
-
+        signals["Delivery_Multiple"] = signals["Delivery_Qty"] / signals["Previous_Day_Delivery"]
+        signals["Price_Change_Percent"] = ((signals["Close"] - signals["Prev_Close"]) / signals["Prev_Close"].replace(0, pd.NA)) * 100
+        signals = add_direction_fields(signals)
+        results.append(signals[cols])
     if not results:
         return pd.DataFrame(columns=cols)
+    return pd.concat(results, ignore_index=True).sort_values(["Date", "Delivery_Multiple"], ascending=[True, False])
 
-    return pd.concat(
-        results,
-        ignore_index=True
-    ).sort_values(
-        ["Date", "Delivery_Multiple"],
-        ascending=[True, False]
-    )
 def save_all(df):
-    sig=build_signals(df)
-    sig.to_csv(HISTORICAL_SIGNALS_FILE,index=False)
+    sig = build_signals(df)
+    sig.to_csv(HISTORICAL_SIGNALS_FILE, index=False)
     return sig
 
-def backfill(start,end):
-    s=session(); symbols=fno_symbols(s); h=load()
-    existing=set(h["Date"]) if not h.empty else set()
-    pieces=[]
-    ds=dates_between(start,end)
-    for i,d in enumerate(ds,1):
-        if d in existing: continue
+def backfill(start, end):
+    s = session()
+    symbols = fno_symbols(s)
+    h = load()
+    required_history_columns = {"Open", "High", "Low", "VWAP"}
+    needs_refresh = h.empty or not required_history_columns.issubset(h.columns)
+    existing = set() if needs_refresh else set(h["Date"])
+    if needs_refresh:
+        print("Existing history lacks OHLC/VWAP fields; refreshing requested range.")
+        h = pd.DataFrame()
+    pieces = []
+    ds = dates_between(start, end)
+    for i, d in enumerate(ds, 1):
+        if d in existing:
+            continue
         try:
             print(f"[{i}/{len(ds)}] {d}")
-            x=parse(download(s,d),d,symbols)
-            if not x.empty: pieces.append(x)
-        except Exception as e: print("Skip:",e)
+            x = parse(download(s, d), d, symbols)
+            if not x.empty:
+                pieces.append(x)
+        except Exception as e:
+            print("Skip:", e)
         time.sleep(.5)
-    if pieces: h=pd.concat([h]+pieces,ignore_index=True)
-    if h.empty: raise RuntimeError("No data downloaded")
-    h["Date"]=pd.to_datetime(h["Date"]).dt.date
-    h=h.drop_duplicates(["Date","Symbol"],keep="last").sort_values(["Date","Symbol"])
-    h.to_csv(HISTORY_FILE,index=False)
-    sig=save_all(h)
-    print("Saved",HISTORY_FILE,len(h),"rows")
-    print("Saved",HISTORICAL_SIGNALS_FILE,len(sig),"signals")
+    if pieces:
+        h = pd.concat([h] + pieces, ignore_index=True)
+    if h.empty:
+        raise RuntimeError("No data downloaded")
+    h["Date"] = pd.to_datetime(h["Date"]).dt.date
+    h = h.drop_duplicates(["Date", "Symbol"], keep="last").sort_values(["Date", "Symbol"])
+    h.to_csv(HISTORY_FILE, index=False)
+    sig = save_all(h)
+    print("Saved", HISTORY_FILE, len(h), "rows")
+    print("Saved", HISTORICAL_SIGNALS_FILE, len(sig), "signals")
 
-def latest(s,symbols):
+def latest(s, symbols):
     for n in range(10):
-        d=date.today()-timedelta(days=n)
-        if d.weekday()>=5: continue
+        d = date.today() - timedelta(days=n)
+        if d.weekday() >= 5:
+            continue
         try:
-            x=parse(download(s,d),d,symbols)
-            if not x.empty:return d,x
-        except Exception as e: print("Not available",d,e)
+            x = parse(download(s, d), d, symbols)
+            if not x.empty:
+                return d, x
+        except Exception as e:
+            print("Not available", d, e)
     raise RuntimeError("No recent trading day")
 
 def daily():
-    h=load()
-    if h.empty: raise RuntimeError("Run the 5-year backfill first")
-    s=session(); symbols=fno_symbols(s); d,today=latest(s,symbols)
-    h=h[h["Date"]!=d].copy()
-    h=pd.concat([h,today],ignore_index=True)
-    h["Date"]=pd.to_datetime(h["Date"]).dt.date
-    h=h.drop_duplicates(["Date","Symbol"],keep="last").sort_values(["Date","Symbol"])
-    h.to_csv(HISTORY_FILE,index=False)
-    allsig=save_all(h)
-    latestsig=allsig[allsig["Date"]==str(d)]
-    latestsig.to_csv(SIGNALS_FILE,index=False)
-    today.to_csv(DAILY_DATA_FILE,index=False)
-    print("Latest:",d,"today signals:",len(latestsig),"5y signals:",len(allsig))
+    h = load()
+    if h.empty:
+        raise RuntimeError("Run the 5-year backfill first")
+    s = session()
+    symbols = fno_symbols(s)
+    d, today = latest(s, symbols)
+    h = h[h["Date"] != d].copy()
+    h = pd.concat([h, today], ignore_index=True)
+    h["Date"] = pd.to_datetime(h["Date"]).dt.date
+    h = h.drop_duplicates(["Date", "Symbol"], keep="last").sort_values(["Date", "Symbol"])
+    h.to_csv(HISTORY_FILE, index=False)
+    allsig = save_all(h)
+    latestsig = allsig[allsig["Date"] == d]
+    latestsig.to_csv(SIGNALS_FILE, index=False)
+    today.to_csv(DAILY_DATA_FILE, index=False)
+    print("Latest:", d, "today signals:", len(latestsig), "5y signals:", len(allsig))
 
-if __name__=="__main__":
-    mode=sys.argv[1] if len(sys.argv)>1 else "daily"
-    if mode=="backfill":
-        start=datetime.strptime(sys.argv[2],"%Y-%m-%d").date()
-        end=datetime.strptime(sys.argv[3],"%Y-%m-%d").date()
-        backfill(start,end)
-    elif mode=="daily":
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "daily"
+    if mode == "backfill":
+        start = datetime.strptime(sys.argv[2], "%Y-%m-%d").date()
+        end = datetime.strptime(sys.argv[3], "%Y-%m-%d").date()
+        backfill(start, end)
+    elif mode == "daily":
         daily()
     else:
         raise SystemExit("Use backfill YYYY-MM-DD YYYY-MM-DD or daily")
