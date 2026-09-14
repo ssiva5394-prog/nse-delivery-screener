@@ -87,69 +87,120 @@ def load():
     return x
 
 def build_signals(df):
-    cols=["Date","Symbol","Close","Price_Change_Percent","Delivery_Qty","Previous_Day_Delivery","Delivery_Multiple","Previous_Calendar_Month_Max","Delivery_Percent"]
-    if df.empty: return pd.DataFrame(columns=cols)
-    df=df.copy(); df["Date"]=pd.to_datetime(df["Date"]).dt.date
-    results=[]
-    for symbol,g in df.groupby("Symbol",sort=False):
-        g=g.sort_values("Date").copy()
-        g["Previous_Day_Delivery"]=g["Delivery_Qty"].shift(1)
-        ds=g["Date"].tolist(); vals=g["Delivery_Qty"].tolist()
-         maxes = []
+    cols = [
+        "Date",
+        "Symbol",
+        "Close",
+        "Price_Change_Percent",
+        "Delivery_Qty",
+        "Previous_Day_Delivery",
+        "Delivery_Multiple",
+        "Previous_Calendar_Month_Max",
+        "Delivery_Percent"
+    ]
+
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"]).dt.date
+
+    results = []
+
+    for symbol, g in df.groupby("Symbol", sort=False):
+        g = g.sort_values("Date").copy()
+
+        # Previous trading day's delivery for this stock
+        g["Previous_Day_Delivery"] = (
+            g["Delivery_Qty"].shift(1)
+        )
+
+        dates = g["Date"].tolist()
+        values = g["Delivery_Qty"].tolist()
+
+        maxes = []
         has_month_history = []
         left = 0
 
-        for i, d in enumerate(ds):s
-            cutoff = month_back(d)
+        for i, current_date in enumerate(dates):
+            cutoff = month_back(current_date)
 
-            while left < i and ds[left] < cutoff:
+            while left < i and dates[left] < cutoff:
                 left += 1
 
-        # Require actual history in the preceding calendar month.
-        has_history = left < i
-        has_month_history.append(has_history)
+            # There must be actual data in the
+            # preceding calendar-month window.
+            has_history = left < i
+            has_month_history.append(has_history)
 
-        if has_history:
-            maxes.append(max(vals[left:i]))
-        else:
-            maxes.append(pd.NA)
+            if has_history:
+                maxes.append(max(values[left:i]))
+            else:
+                maxes.append(pd.NA)
 
-    g["Previous_Calendar_Month_Max"] = maxes
-    g["Has_Calendar_Month_History"] = has_month_history
+        g["Previous_Calendar_Month_Max"] = maxes
+        g["Has_Calendar_Month_History"] = has_month_history
 
-    # Rule 1: today's delivery must exceed the
-    # previous calendar month's maximum.
-    c1 = (
-        g["Has_Calendar_Month_History"]
-        & g["Previous_Calendar_Month_Max"].notna()
-        & (
-            g["Delivery_Qty"]
-            > g["Previous_Calendar_Month_Max"]
+        # RULE 1:
+        # Today's delivery > maximum delivery during
+        # the preceding one calendar month, excluding today.
+        condition_1 = (
+            g["Has_Calendar_Month_History"]
+            & g["Previous_Calendar_Month_Max"].notna()
+            & (
+                g["Delivery_Qty"]
+                > g["Previous_Calendar_Month_Max"]
+            )
         )
-    )
 
-    # Rule 2: today's delivery must exceed
-    # 2 x previous trading day's delivery.
-    c2 = (
-        g["Previous_Day_Delivery"].notna()
-        & (
-            g["Delivery_Qty"]
-            > PREVIOUS_DAY_MULTIPLIER
-            * g["Previous_Day_Delivery"]
+        # RULE 2:
+        # Today's delivery > 2 x previous trading day's delivery.
+        condition_2 = (
+            g["Previous_Day_Delivery"].notna()
+            & (
+                g["Delivery_Qty"]
+                > (
+                    PREVIOUS_DAY_MULTIPLIER
+                    * g["Previous_Day_Delivery"]
+                )
+            )
         )
+
+        # BOTH rules must pass.
+        signals = g[condition_1 & condition_2].copy()
+
+        if signals.empty:
+            continue
+
+        signals["Delivery_Multiple"] = (
+            signals["Delivery_Qty"]
+            / signals["Previous_Day_Delivery"]
+        )
+
+        signals["Price_Change_Percent"] = (
+            (
+                signals["Close"]
+                - signals["Prev_Close"]
+            )
+            / signals["Prev_Close"].replace(0, pd.NA)
+        ) * 100
+
+        results.append(
+            signals[cols]
+        )
+
+    if not results:
+        return pd.DataFrame(columns=cols)
+
+    return pd.concat(
+        results,
+        ignore_index=True
+    ).sort_values(
+        ["Date", "Delivery_Multiple"],
+        ascending=[True, False]
     )
-
-    # Both rules must pass.
-    z = g[c1 & c2].copy()
-        if z.empty: continue
-        z["Delivery_Multiple"]=z["Delivery_Qty"]/z["Previous_Day_Delivery"]
-        z["Price_Change_Percent"]=((z["Close"]-z["Prev_Close"])/z["Prev_Close"].replace(0,pd.NA))*100
-        results.append(z[cols])
-    if not results: return pd.DataFrame(columns=cols)
-    return pd.concat(results,ignore_index=True).sort_values(["Date","Delivery_Multiple"],ascending=[True,False])
-
 def save_all(df):
-    sig=build_signals(df)
+    sig=build_signals(df)s
     sig.to_csv(HISTORICAL_SIGNALS_FILE,index=False)
     return sig
 
