@@ -141,10 +141,10 @@ def build_signals(df):
         g["Previous_Calendar_Month_Max"] = maxes
         g["Has_Calendar_Month_History"] = has_month_history
 
-        # RULE 1:
+                # RULE 1:
         # Today's delivery > maximum delivery during
         # the preceding one calendar month, excluding today.
-               condition_1 = (
+        condition_1 = (
             g["Has_Calendar_Month_History"].fillna(False)
             & g["Previous_Calendar_Month_Max"].notna()
             & (
@@ -153,6 +153,8 @@ def build_signals(df):
             )
         )
 
+        # RULE 2:
+        # Today's delivery > 2 x previous trading day's delivery.
         condition_2 = (
             g["Previous_Day_Delivery"].notna()
             & (
@@ -163,6 +165,9 @@ def build_signals(df):
                 )
             )
         )
+
+        # BOTH rules must pass.
+        signals = g[condition_1 & condition_2].copy()
 
         # BOTH rules must pass.
         signals = g[condition_1 & condition_2].copy()
