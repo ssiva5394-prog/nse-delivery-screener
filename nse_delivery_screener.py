@@ -303,53 +303,48 @@ def parse_bhavcopy(text, trading_date, fno_symbols):
 # FIND LATEST TRADING DAY
 # ============================================================
 
+
 def find_latest_trading_day(session, fno_symbols):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
-    today = date.today()
+    india_today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
+    # Check today's date first, then previous weekdays.
+    # Retry each candidate several times before moving backward.
     for days_back in range(0, 10):
-
-        candidate = (
-            today -
-            timedelta(days=days_back)
-        )
+        candidate = india_today - timedelta(days=days_back)
 
         if candidate.weekday() >= 5:
             continue
 
-        try:
-
-            text = download_bhavcopy(
-                session,
-                candidate
-            )
-
-            data = parse_bhavcopy(
-                text,
-                candidate,
-                fno_symbols
-            )
-
-            if len(data) > 0:
-
+        for attempt in range(1, 4):
+            try:
                 print(
-                    "Latest trading day:",
-                    candidate
+                    f"Checking NSE data for {candidate} "
+                    f"(attempt {attempt}/3)"
                 )
 
-                return candidate, data
+                text = download_bhavcopy(session, candidate)
+                data = parse_bhavcopy(text, candidate, fno_symbols)
 
-        except Exception as exc:
+                if not data.empty:
+                    print("Latest available NSE trading day:", candidate)
+                    return candidate, data
 
-            print(
-                "Not available:",
-                candidate,
-                exc
-            )
+                print("Downloaded file has no eligible F&O rows.")
+
+            except Exception as exc:
+                print(f"Data not ready for {candidate}: {exc}")
+
+            if attempt < 3:
+                time.sleep(60)
 
     raise RuntimeError(
-        "Could not find a recent NSE trading day."
+        "Could not verify recent NSE delivery data. "
+        "No new results were published; check the next scheduled run."
     )
+
 
 
 # ============================================================
