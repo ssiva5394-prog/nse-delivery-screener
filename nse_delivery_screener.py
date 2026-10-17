@@ -60,89 +60,64 @@ def create_nse_session():
 # F&O UNIVERSE
 # ============================================================
 
-def get_fno_symbols(session):
 
+def get_fno_symbols(session):
     print("Getting current NSE F&O stock universe...")
 
-    response = session.get(
-        NSE_FNO_PAGE,
-        timeout=20
-    )
-
+    response = session.get(NSE_FNO_PAGE, timeout=30)
     response.raise_for_status()
 
-    html = response.text
-
+    tables = pd.read_html(io.StringIO(response.text))
     symbols = set()
 
-    # First try the HTML tables.
-    try:
+    excluded_indices = {
+        "NIFTY", "BANKNIFTY", "FINNIFTY",
+        "MIDCPNIFTY", "NIFTYNXT50",
+    }
 
-        tables = pd.read_html(io.StringIO(html))
-
-        for table in tables:
-
-            columns = [
-                str(c).strip().upper()
-                for c in table.columns
+    for table in tables:
+        if isinstance(table.columns, pd.MultiIndex):
+            table.columns = [
+                " ".join(str(part).strip() for part in col
+                         if str(part).strip() and str(part) != "nan").upper()
+                for col in table.columns
+            ]
+        else:
+            table.columns = [
+                str(col).strip().upper() for col in table.columns
             ]
 
-            symbol_col = None
-
-            for col in table.columns:
-                if str(col).strip().upper() == "SYMBOL":
-                    symbol_col = col
-                    break
-
-            if symbol_col is not None:
-
-                for value in table[symbol_col].dropna():
-
-                    symbol = str(value).strip()
-
-                    if (
-                        symbol
-                        and symbol.upper() != "SYMBOL"
-                        and symbol.upper() not in {
-                            "NIFTY",
-                            "BANKNIFTY",
-                            "FINNIFTY",
-                            "MIDCPNIFTY",
-                            "NIFTYNXT50",
-                        }
-                    ):
-                        symbols.add(symbol)
-
-    except Exception as exc:
-        print("HTML table parsing failed:", exc)
-
-
-    # Fallback: extract symbol links from the HTML.
-    if len(symbols) < 100:
-
-        matches = re.findall(
-            r'/get-quotes/equity\?symbol=([^"&]+)',
-            html,
-            flags=re.IGNORECASE
+        symbol_col = next(
+            (col for col in table.columns
+             if col == "SYMBOL" or col.endswith(" SYMBOL")),
+            None,
         )
 
-        for symbol in matches:
-            symbols.add(symbol.strip())
+        if symbol_col is None:
+            continue
 
+        # Only collect values from the official NSE F&O page tables.
+        for value in table[symbol_col].dropna():
+            symbol = str(value).strip().upper()
 
-    if len(symbols) < 100:
+            if (
+                symbol
+                and symbol != "SYMBOL"
+                and symbol not in excluded_indices
+                and re.fullmatch(r"[A-Z0-9&-]+", symbol)
+            ):
+                symbols.add(symbol)
 
+    # Stop rather than scan all equities if the list looks incomplete.
+    if len(symbols) < 150:
         raise RuntimeError(
-            "Could not obtain the NSE F&O stock universe."
+            "Could not verify the NSE F&O list. "
+            f"Only found {len(symbols)} symbols; stopping safely."
         )
 
-
-    print(
-        "F&O symbols found:",
-        len(symbols)
-    )
-
+    print("F&O symbols found:", len(symbols))
     return symbols
+
 
 
 # ============================================================
