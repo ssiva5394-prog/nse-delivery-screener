@@ -3,7 +3,9 @@ name: NSE Delivery Screener
 on:
   workflow_dispatch:
   schedule:
+    - cron: "30 12 * * 1-5"
     - cron: "30 13 * * 1-5"
+    - cron: "30 14 * * 1-5"
 
 permissions:
   contents: write
