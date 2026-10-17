@@ -830,7 +830,25 @@ def main():
             ]
         )
 
+    # Prevent older data from overwriting newer signals
+    if os.path.exists(SIGNALS_FILE) and not signals.empty:
+        existing_signals = pd.read_csv(SIGNALS_FILE)
 
+        if "Date" in existing_signals.columns and not existing_signals.empty:
+            existing_dates = pd.to_datetime(
+                existing_signals["Date"], errors="coerce"
+            ).dropna()
+
+            current_date = pd.to_datetime(latest_date, errors="coerce")
+
+            if (
+                not existing_dates.empty
+                and pd.notna(current_date)
+                and current_date < existing_dates.max()
+            ):
+                raise RuntimeError(
+                    "Refusing to overwrite signals with older trading data."
+                )
     signals.to_csv(
         SIGNALS_FILE,
         index=False
