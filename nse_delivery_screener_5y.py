@@ -358,8 +358,15 @@ def daily():
     h = load()
     if h.empty:
         raise RuntimeError("Run the 5-year backfill first")
+
     s = session()
     symbols = fno_symbols(s)
+
+    # Keep only the current NSE F&O stock universe
+    symbols = {str(x).strip().upper() for x in symbols}
+    h["Symbol"] = h["Symbol"].astype(str).str.strip().str.upper()
+    h = h[h["Symbol"].isin(symbols)].copy()
+
     d, today = latest(s, symbols)
     h = h[h["Date"] != d].copy()
     h = pd.concat([h, today], ignore_index=True)
