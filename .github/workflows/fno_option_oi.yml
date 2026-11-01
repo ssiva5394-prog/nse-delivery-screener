@@ -1,0 +1,55 @@
+name: NSE F&O Option OI Screener
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "Historical start date (YYYY-MM-DD)"
+        required: true
+        default: "2026-09-25"
+      end_date:
+        description: "Historical end date (YYYY-MM-DD)"
+        required: true
+        default: "2026-10-30"
+  schedule:
+    - cron: "30 13 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  option-oi-screener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run option OI screener
+        if: github.event_name == 'schedule'
+        run: |
+          python nse_fno_option_screener.py daily
+
+      - name: Backfill option OI history
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python nse_fno_option_screener.py backfill \
+            "${{ inputs.start_date }}" \
+            "${{ inputs.end_date }}"
+
+      - name: Save F&O option screener files
+        run: |
+          git config user.name "NSE F&O Option Screener"
+          git config user.email "actions@github.com"
+          git add fno_option_history.csv fno_option_daily.csv fno_option_signals.csv
+          git diff --cached --quiet || git commit -m "Update NSE F&O option OI signals"
+          git push
