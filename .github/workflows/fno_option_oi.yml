@@ -1,6 +1,10 @@
 name: NSE F&O Option OI Screener
 
 on:
+  push:
+    branches: [ feature/fno-option-oi-screener ]
+    paths:
+      - '.github/workflows/fno_option_oi.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -44,6 +48,11 @@ jobs:
         if: github.event_name == 'schedule'
         run: |
           python nse_fno_option_screener.py daily
+
+      - name: Test NSE option bhavcopy download (two recent sessions)
+        if: github.event_name == 'push'
+        run: |
+          python nse_fno_option_screener.py backfill 2026-10-29 2026-10-30
 
       - name: Backfill option OI history
         if: github.event_name == 'workflow_dispatch'
