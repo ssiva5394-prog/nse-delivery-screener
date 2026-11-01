@@ -54,6 +54,11 @@ jobs:
         run: |
           python nse_fno_option_screener.py backfill 2026-10-29 2026-10-30
 
+      - name: Backfill one month of option OI history
+        if: github.event_name == 'push'
+        run: |
+          python nse_fno_option_screener.py backfill 2026-09-25 2026-10-30
+
       - name: Backfill option OI history
         if: github.event_name == 'workflow_dispatch'
         run: |
