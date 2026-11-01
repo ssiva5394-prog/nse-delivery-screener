@@ -179,7 +179,11 @@ def build_signals(history):
         for i, current_date in enumerate(dates):
             cutoff = (pd.Timestamp(current_date) - pd.DateOffset(months=1)).date()
             prior_positions = [j for j in range(i) if dates[j] >= cutoff]
-            if not prior_positions:
+            # Do not evaluate a "previous calendar month maximum" until this
+            # exact contract has at least one month of observable history.
+            # Otherwise early backfill dates would compare against only a
+            # partial month and create misleading signals.
+            if dates[0] > cutoff or not prior_positions:
                 chg_max.append(pd.NA)
                 chg_max_date.append(pd.NA)
                 oi_max.append(pd.NA)
