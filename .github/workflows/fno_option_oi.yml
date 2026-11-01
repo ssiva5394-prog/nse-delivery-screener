@@ -50,7 +50,7 @@ jobs:
           python nse_fno_option_screener.py daily
 
       - name: Test NSE option bhavcopy download (two recent sessions)
-        if: github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         run: |
           python nse_fno_option_screener.py backfill 2026-10-29 2026-10-30
 
