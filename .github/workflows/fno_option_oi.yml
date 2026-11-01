@@ -34,6 +34,10 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Run option OI unit tests
+        run: |
+          python -m unittest discover -s tests -v
+
       - name: Run option OI screener
         if: github.event_name == 'schedule'
         run: |
