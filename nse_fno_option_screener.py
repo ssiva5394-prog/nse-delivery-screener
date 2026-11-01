@@ -202,21 +202,27 @@ def build_signals(history):
         g["Previous_Month_Max_Total_OI"] = oi_max
         g["Total_OI_Month_Max_Date"] = oi_max_date
 
+        # Use numeric NaN and fill missing comparisons with False. This avoids
+        # pandas.NA truth-value errors for contracts without enough history.
         g["Change_OI_Month_Max_Pass"] = (
-            g["Previous_Month_Max_Change_in_OI"].notna()
-            & (g["Change_in_OI"] > g["Previous_Month_Max_Change_in_OI"])
+            pd.to_numeric(g["Change_in_OI"], errors="coerce")
+            .gt(pd.to_numeric(g["Previous_Month_Max_Change_in_OI"], errors="coerce"))
+            .fillna(False)
         )
         g["Change_OI_2x_Previous_Day_Pass"] = (
-            g["Previous_Day_Change_in_OI"].notna()
-            & (g["Change_in_OI"] > MULTIPLIER * g["Previous_Day_Change_in_OI"])
+            pd.to_numeric(g["Change_in_OI"], errors="coerce")
+            .gt(MULTIPLIER * pd.to_numeric(g["Previous_Day_Change_in_OI"], errors="coerce"))
+            .fillna(False)
         )
         g["Total_OI_Month_Max_Pass"] = (
-            g["Previous_Month_Max_Total_OI"].notna()
-            & (g["Total_OI"] > g["Previous_Month_Max_Total_OI"])
+            pd.to_numeric(g["Total_OI"], errors="coerce")
+            .gt(pd.to_numeric(g["Previous_Month_Max_Total_OI"], errors="coerce"))
+            .fillna(False)
         )
         g["Total_OI_2x_Previous_Day_Pass"] = (
-            g["Previous_Day_Total_OI"].notna()
-            & (g["Total_OI"] > MULTIPLIER * g["Previous_Day_Total_OI"])
+            pd.to_numeric(g["Total_OI"], errors="coerce")
+            .gt(MULTIPLIER * pd.to_numeric(g["Previous_Day_Total_OI"], errors="coerce"))
+            .fillna(False)
         )
 
         g["Combined_Signal"] = (
