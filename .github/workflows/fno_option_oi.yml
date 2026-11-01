@@ -20,7 +20,9 @@ on:
         required: true
         default: "2026-10-30"
   schedule:
-    - cron: "30 13 * * 1-5"
+    # Run every day at 7:00 PM IST. On weekends/holidays,
+    # daily() automatically falls back to the latest available NSE trading day.
+    - cron: "30 13 * * *"
 
 permissions:
   contents: write
