@@ -31,6 +31,12 @@ class OptionOISignalTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertTrue(bool(result.iloc[0]["Combined_Signal"]))
 
+    def test_no_signal_when_contract_has_only_partial_month_history(self):
+        rows = self.rows.copy()
+        rows["Date"] = [date(2026, 9, 25), date(2026, 9, 30), date(2026, 10, 1)]
+        result = build_signals(rows)
+        self.assertEqual(len(result), 0)
+
     def test_fails_when_total_oi_previous_day_rule_fails(self):
         rows = self.rows.copy()
         rows.loc[2, "Total_OI"] = 1500  # not greater than 2 x previous day (900)
