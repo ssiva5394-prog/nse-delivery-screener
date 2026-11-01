@@ -68,6 +68,58 @@ jobs:
             "${{ inputs.start_date }}" \
             "${{ inputs.end_date }}"
 
+      - name: Validate generated OI signal CSV
+        if: github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import pandas as pd
+
+          path = "fno_option_signals.csv"
+          df = pd.read_csv(path)
+          required = [
+              "Change_in_OI", "Previous_Day_Change_in_OI",
+              "Previous_Month_Max_Change_in_OI",
+              "Total_OI", "Previous_Day_Total_OI",
+              "Previous_Month_Max_Total_OI",
+              "Change_OI_Month_Max_Pass",
+              "Change_OI_2x_Previous_Day_Pass",
+              "Total_OI_Month_Max_Pass",
+              "Total_OI_2x_Previous_Day_Pass", "Combined_Signal"
+          ]
+          missing = [c for c in required if c not in df.columns]
+          if missing:
+              raise SystemExit(f"Missing signal columns: {missing}")
+          if df.empty:
+              print("Signal CSV is empty; no contracts passed all four rules.")
+          else:
+              numeric = [
+                  "Change_in_OI", "Previous_Day_Change_in_OI",
+                  "Previous_Month_Max_Change_in_OI", "Total_OI",
+                  "Previous_Day_Total_OI", "Previous_Month_Max_Total_OI"
+              ]
+              for col in numeric:
+                  df[col] = pd.to_numeric(df[col], errors="coerce")
+              checks = {
+                  "Change_OI_Month_Max_Pass": df["Change_in_OI"] > df["Previous_Month_Max_Change_in_OI"],
+                  "Change_OI_2x_Previous_Day_Pass": df["Change_in_OI"] > 2 * df["Previous_Day_Change_in_OI"],
+                  "Total_OI_Month_Max_Pass": df["Total_OI"] > df["Previous_Month_Max_Total_OI"],
+                  "Total_OI_2x_Previous_Day_Pass": df["Total_OI"] > 2 * df["Previous_Day_Total_OI"],
+              }
+              for col, expected in checks.items():
+                  actual = df[col].astype(str).str.lower().isin(["true", "1", "yes"])
+                  if not actual.all() or not expected.fillna(False).all():
+                      raise SystemExit(f"Signal validation failed: {col}")
+              combined = df["Combined_Signal"].astype(str).str.lower().isin(["true", "1", "yes"])
+              if not combined.all():
+                  raise SystemExit("Combined_Signal contains a non-true row")
+              print(f"Validated {len(df)} signal rows: all four OI conditions pass.")
+              print(df[["Date", "Symbol", "Expiry", "Strike", "Option_Type",
+                        "Change_in_OI", "Previous_Day_Change_in_OI",
+                        "Previous_Month_Max_Change_in_OI", "Total_OI",
+                        "Previous_Day_Total_OI", "Previous_Month_Max_Total_OI"]]
+                    .head(5).to_string(index=False))
+          PY
+
       - name: Save F&O option screener files
         if: github.event_name != 'pull_request'
         run: |
