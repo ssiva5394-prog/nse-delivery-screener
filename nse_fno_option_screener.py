@@ -93,30 +93,19 @@ def parse_bhavcopy(raw, trading_date, stock_symbols):
     c_underlying = _col(raw, "UNDRLYGPRIC", "UNDERLYING_VALUE", required=False)
 
     df = raw.copy()
-    print("UDiFF columns:", list(raw.columns))
     if c_segment:
-        print("UDiFF segment values:", df[c_segment].astype(str).str.strip().value_counts().head(10).to_dict())
+        df = df[df[c_segment].astype(str).str.strip().str.upper() == "FO"]
     if c_inst:
-        print("UDiFF instrument type values:", df[c_inst].astype(str).str.strip().value_counts().head(20).to_dict())
-    print("UDiFF option type values:", df[c_type].astype(str).str.strip().value_counts().head(10).to_dict())
-    print("UDiFF sample symbols:", df[c_symbol].astype(str).str.strip().drop_duplicates().head(20).tolist())
-    print("F&O stock symbol sample:", sorted({str(x).strip().upper() for x in stock_symbols})[:20])
-    if c_segment:
-        df = df[df[c_segment].astype(str).str.strip().str.upper().isin(["FO", "D"])]
-        print("Rows after segment filter:", len(df))
-    if c_inst:
+        # NSE UDiFF uses STO for stock options (IDO = index options,
+        # STF = stock futures, IDF = index futures).
         inst = df[c_inst].astype(str).str.strip().str.upper()
-        df = df[inst.isin(["OPTSTK", "OPTSTK "])]
-        print("Rows after stock-option instrument filter:", len(df))
+        df = df[inst == "STO"]
 
     df["_SYMBOL"] = df[c_symbol].astype(str).str.strip().str.upper()
     allowed = {str(x).strip().upper() for x in stock_symbols}
-    print("Rows before stock-symbol filter:", len(df))
     df = df[df["_SYMBOL"].isin(allowed)].copy()
-    print("Rows after stock-symbol filter:", len(df))
     df["_OPTION_TYPE"] = df[c_type].astype(str).str.strip().str.upper()
     df = df[df["_OPTION_TYPE"].isin(["CE", "PE"])].copy()
-    print("Rows after CE/PE filter:", len(df))
     if df.empty:
         return pd.DataFrame()
 
