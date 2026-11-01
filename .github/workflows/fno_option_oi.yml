@@ -53,6 +53,7 @@ jobs:
             "${{ inputs.end_date }}"
 
       - name: Save F&O option screener files
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "NSE F&O Option Screener"
           git config user.email "actions@github.com"
