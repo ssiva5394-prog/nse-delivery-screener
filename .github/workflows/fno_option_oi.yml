@@ -5,6 +5,8 @@ on:
     branches: [ feature/fno-option-oi-screener ]
     paths:
       - '.github/workflows/fno_option_oi.yml'
+      - 'nse_fno_option_screener.py'
+      - 'tests/test_fno_option_oi_screener.py'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
