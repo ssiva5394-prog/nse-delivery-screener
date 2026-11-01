@@ -1,6 +1,8 @@
 name: NSE F&O Option OI Screener
 
 on:
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       start_date:
